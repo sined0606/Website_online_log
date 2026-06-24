@@ -1,6 +1,6 @@
 {
   "name": "health-checker",
-  "version": "1.0.0",
+  "version": "0.1.1",
   "description": "HTTP health check monitoring with Web UI and REST API",
   "main": "server.js",
   "scripts": {
