@@ -22,6 +22,7 @@
   <div class="stats-bar" id="statsBar">
     <div class="stat-card"><div class="label">Gesamt</div><div class="value" id="statTotal">—</div></div>
     <div class="stat-card up"><div class="label">Online</div><div class="value" id="statUp">—</div></div>
+    <div class="stat-card partial"><div class="label">Teilweise</div><div class="value" id="statPartial">—</div></div>
     <div class="stat-card down"><div class="label">Offline</div><div class="value" id="statDown">—</div></div>
     <div class="stat-card unknown"><div class="label">Unbekannt</div><div class="value" id="statUnknown">—</div></div>
   </div>
@@ -49,11 +50,13 @@ async function load() {
     const services = await res.json();
 
     const up = services.filter(s => s.status === 'up').length;
-    const down = services.filter(s => s.status === 'down' || s.status === 'partial').length;
+    const partial = services.filter(s => s.status === 'partial').length;
+    const down = services.filter(s => s.status === 'down').length;
     const unknown = services.filter(s => s.status === 'unknown').length;
 
     document.getElementById('statTotal').textContent = services.length;
     document.getElementById('statUp').textContent = up;
+    document.getElementById('statPartial').textContent = partial;
     document.getElementById('statDown').textContent = down;
     document.getElementById('statUnknown').textContent = unknown;
     document.getElementById('lastRefresh').textContent =
