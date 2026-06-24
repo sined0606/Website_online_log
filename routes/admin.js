@@ -2,7 +2,13 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const https = require('https');
 const bcrypt = require('bcryptjs');
+
+// --- Update-Check Cache ---
+let _updateCache = null;
+let _updateCacheAt = 0;
+const UPDATE_REPO = 'sined0606/Website_online_log';
 const { requireAdmin } = require('../middleware/auth');
 const { loginRateLimit, recordFailedAttempt, clearAttempts, getClientIp } = require('../middleware/rateLimit');
 const {
@@ -242,6 +248,54 @@ router.get('/logs', requireAdmin, (req, res) => {
     total: countApiLogs(),
     logs: getApiLogs(limit, offset),
   });
+});
+
+// --- Update Check ---
+
+router.get('/update-check', requireAdmin, async (req, res) => {
+  const CACHE_TTL = 6 * 60 * 60 * 1000;
+  if (_updateCache && Date.now() - _updateCacheAt < CACHE_TTL) {
+    return res.json(_updateCache);
+  }
+
+  const pkg = require('../package.json');
+
+  try {
+    const data = await new Promise((resolve, reject) => {
+      const req2 = https.get({
+        hostname: 'api.github.com',
+        path: `/repos/${UPDATE_REPO}/releases/latest`,
+        headers: { 'User-Agent': 'health-checker/1', 'Accept': 'application/vnd.github+json' },
+      }, r => {
+        let body = '';
+        r.on('data', c => body += c);
+        r.on('end', () => { try { resolve(JSON.parse(body)); } catch (e) { reject(e); } });
+      });
+      req2.on('error', reject);
+      req2.setTimeout(8000, () => { req2.destroy(); reject(new Error('timeout')); });
+    });
+
+    if (data.message === 'Not Found') {
+      _updateCache = { current: pkg.version, latest: null, update_available: false };
+      _updateCacheAt = Date.now();
+      return res.json(_updateCache);
+    }
+
+    const latest = (data.tag_name || '').replace(/^v/, '');
+    _updateCache = {
+      current: pkg.version,
+      latest,
+      update_available: !!latest && latest !== pkg.version,
+      release_name: data.name || '',
+      release_url: data.html_url || '',
+      published_at: data.published_at || null,
+      notes_url: `https://raw.githubusercontent.com/${UPDATE_REPO}/${data.tag_name || 'main'}/ReleaseNote.md`,
+    };
+    _updateCacheAt = Date.now();
+    res.json(_updateCache);
+  } catch (err) {
+    res.json({ current: pkg.version, latest: null, update_available: false, error: err.message });
+  }
 });
 
 // --- Settings ---

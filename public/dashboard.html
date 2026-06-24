@@ -13,6 +13,7 @@
   <div class="header-actions">
     <span class="text-muted" style="font-size:12px" id="lastRefresh"></span>
     <span class="refresh-dot" title="Auto-refresh aktiv"></span>
+    <button id="versionBtn" onclick="showUpdateModal()" class="btn btn-sm" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);cursor:default;font-size:11px" disabled>v—</button>
     <a href="/admin.html" class="btn btn-secondary btn-sm">Admin</a>
     <button onclick="logout()" class="btn btn-secondary btn-sm">Abmelden</button>
   </div>
@@ -28,6 +29,23 @@
   </div>
 
   <div id="alert" class="alert alert-error" style="display:none"></div>
+
+  <div id="updateModal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header">
+        <h3>Update verfügbar</h3>
+        <button class="modal-close" onclick="document.getElementById('updateModal').style.display='none'">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="updateInfo" style="margin-bottom:16px;font-size:13px"></div>
+        <div id="updateNotes" style="max-height:400px;overflow-y:auto;font-size:13px;line-height:1.6"></div>
+      </div>
+      <div class="modal-footer">
+        <a id="updateReleaseLink" href="#" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Release auf GitHub</a>
+        <button onclick="document.getElementById('updateModal').style.display='none'" class="btn btn-secondary btn-sm">Schließen</button>
+      </div>
+    </div>
+  </div>
   <div class="service-grid" id="grid">
     <div class="empty-state"><p>Lade Dienste…</p></div>
   </div>
@@ -161,10 +179,105 @@ async function logout() {
   window.location.href = '/login.html';
 }
 
+// --- Update Check ---
+
+let _updateInfo = null;
+
+async function checkForUpdates() {
+  try {
+    const res = await fetch('/admin/update-check');
+    if (!res.ok) return;
+    const data = await res.json();
+    _updateInfo = data;
+    const btn = document.getElementById('versionBtn');
+    if (data.update_available) {
+      btn.textContent = `↑ v${data.latest}`;
+      btn.style.background = '#78350f33';
+      btn.style.color = '#fbbf24';
+      btn.style.borderColor = '#92400e';
+      btn.style.cursor = 'pointer';
+      btn.disabled = false;
+    } else if (data.current) {
+      btn.textContent = `v${data.current} ✓`;
+      btn.style.color = data.latest ? 'var(--up)' : 'var(--muted)';
+      btn.style.cursor = 'default';
+      btn.disabled = true;
+    }
+  } catch (_) {}
+}
+
+function scheduleUpdateChecks() {
+  const delayMs = (6 * 60 + Math.floor(Math.random() * 10)) * 60 * 1000;
+  setTimeout(async () => {
+    await checkForUpdates();
+    scheduleUpdateChecks();
+  }, delayMs);
+}
+
+async function showUpdateModal() {
+  if (!_updateInfo || !_updateInfo.update_available) return;
+  const info = _updateInfo;
+  const pub = info.published_at ? new Date(info.published_at).toLocaleDateString('de-DE') : null;
+  document.getElementById('updateInfo').innerHTML =
+    `<p>Installierte Version: <strong>v${esc(info.current)}</strong> &rarr; Neue Version: <strong>v${esc(info.latest)}</strong></p>` +
+    (info.release_name ? `<p style="color:var(--muted);margin-top:4px">${esc(info.release_name)}</p>` : '') +
+    (pub ? `<p style="color:var(--muted);margin-top:2px">Veröffentlicht: ${pub}</p>` : '');
+  document.getElementById('updateReleaseLink').href = info.release_url || '#';
+
+  const notesEl = document.getElementById('updateNotes');
+  notesEl.innerHTML = '<p style="color:var(--muted)">Lade Release Notes…</p>';
+  document.getElementById('updateModal').style.display = 'flex';
+
+  try {
+    const r = await fetch(info.notes_url);
+    if (!r.ok) throw new Error('not found');
+    notesEl.innerHTML = renderMd(await r.text());
+  } catch (_) {
+    notesEl.innerHTML = '<p style="color:var(--muted)">Release Notes nicht verfügbar.</p>';
+  }
+}
+
+function renderMd(md) {
+  const lines = md.split('\n');
+  let html = '';
+  let inList = false;
+  for (const raw of lines) {
+    if (raw.startsWith('### ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h4 style="margin:12px 0 4px;color:var(--text)">${inlineMd(raw.slice(4))}</h4>`;
+    } else if (raw.startsWith('## ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h3 style="margin:14px 0 6px;color:var(--text)">${inlineMd(raw.slice(3))}</h3>`;
+    } else if (raw.startsWith('# ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h2 style="margin:16px 0 8px;color:var(--accent)">${inlineMd(raw.slice(2))}</h2>`;
+    } else if (raw.match(/^[-*] /)) {
+      if (!inList) { html += '<ul style="padding-left:18px;margin:4px 0">'; inList = true; }
+      html += `<li style="margin:2px 0">${inlineMd(raw.slice(2))}</li>`;
+    } else if (raw.trim() === '') {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '<br>';
+    } else {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<p style="margin:3px 0">${inlineMd(raw)}</p>`;
+    }
+  }
+  if (inList) html += '</ul>';
+  return html;
+}
+
+function inlineMd(s) {
+  return esc(s)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`(.+?)`/g, '<code>$1</code>');
+}
+
 (async () => {
   if (!await checkAuth()) return;
   await load();
   refreshTimer = setInterval(load, 30000);
+  await checkForUpdates();
+  scheduleUpdateChecks();
 })();
 </script>
 </body>
