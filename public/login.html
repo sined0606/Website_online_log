@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — Health Checker</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="login-page">
+  <div class="login-box">
+    <div class="login-title">Health <span style="color:var(--accent)">Checker</span></div>
+    <div class="login-sub">Admin-Anmeldung erforderlich</div>
+
+    <div id="err" class="alert alert-error" style="display:none"></div>
+
+    <form id="loginForm" class="form-grid">
+      <div class="field">
+        <label>Passwort</label>
+        <input type="password" id="password" placeholder="Admin-Passwort" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary" id="submitBtn" style="width:100%;justify-content:center">
+        Anmelden
+      </button>
+    </form>
+  </div>
+</div>
+
+<script>
+document.getElementById('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = document.getElementById('submitBtn');
+  const err = document.getElementById('err');
+  err.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Anmelden…';
+
+  try {
+    const res = await fetch('/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: document.getElementById('password').value }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      window.location.href = '/dashboard.html';
+    } else {
+      err.textContent = data.error || 'Anmeldung fehlgeschlagen';
+      err.style.display = 'block';
+    }
+  } catch {
+    err.textContent = 'Verbindungsfehler';
+    err.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Anmelden';
+  }
+});
+
+// Redirect if already logged in
+fetch('/admin/session').then(r => r.json()).then(d => {
+  if (d.authenticated) window.location.href = '/dashboard.html';
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Health Checker</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="header">
+  <div class="header-title">Health <span>Checker</span> <span style="color:var(--muted);font-weight:400;font-size:14px">/ Admin</span></div>
+  <div class="header-actions">
+    <a href="/dashboard.html" class="btn btn-secondary btn-sm">Dashboard</a>
+    <button onclick="logout()" class="btn btn-secondary btn-sm">Abmelden</button>
+  </div>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('services', this)">Dienste</button>
+    <button class="tab-btn" onclick="switchTab('tokens', this)">API-Tokens</button>
+    <button class="tab-btn" onclick="switchTab('logs', this)">API-Logs</button>
+    <button class="tab-btn" onclick="switchTab('settings', this)">Einstellungen</button>
+  </div>
+
+  <!-- ===== DIENSTE ===== -->
+  <div id="tab-services" class="tab-content active">
+    <div class="panel" style="margin-bottom:20px">
+      <div class="panel-header">
+        <h3>Dienst hinzufügen</h3>
+        <button class="btn btn-secondary btn-sm" onclick="toggleAddForm()">+ Hinzufügen</button>
+      </div>
+      <div class="panel-body" id="addServiceForm" style="display:none">
+        <div id="addErr" class="alert alert-error" style="display:none"></div>
+        <div class="form-grid form-grid-4" style="align-items:end">
+          <div class="field"><label>Name</label><input id="sName" placeholder="z.B. ILIAS"></div>
+          <div class="field"><label>URL</label><input id="sUrl" placeholder="https://example.com" type="url"></div>
+          <div class="field"><label>Interval (Sek.)</label><input id="sInterval" type="number" value="60" min="10" max="86400"></div>
+          <div class="field"><label>Timeout (Sek.)</label><input id="sTimeout" type="number" value="10" min="1" max="120"></div>
+        </div>
+        <div style="margin-top:12px">
+          <label class="perm-item" style="display:inline-flex;width:auto;gap:10px;cursor:pointer">
+            <input type="checkbox" id="sDualStack">
+            <div><div class="perm-name">Dual-Stack (IPv4 + IPv6 parallel prüfen)</div>
+            <div class="perm-url">DNS-Auflösung für beide Protokolle, IPs werden in der Antwort angezeigt</div></div>
+          </label>
+        </div>
+        <div class="mt-16 gap-8">
+          <button class="btn btn-primary" onclick="addService()">Dienst anlegen</button>
+          <button class="btn btn-secondary" onclick="importCurl()">curl.json importieren</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><h3>Alle Dienste</h3></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th><th>URL</th><th>Status</th><th>Letzte Prüfung</th>
+              <th>Antwortzeit</th><th>Interval</th><th>Aktionen</th>
+            </tr>
+          </thead>
+          <tbody id="serviceTable"><tr><td colspan="7" class="text-muted" style="padding:20px">Lade…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TOKENS ===== -->
+  <div id="tab-tokens" class="tab-content">
+    <div class="panel" style="margin-bottom:20px">
+      <div class="panel-header">
+        <h3>Neuen Token erstellen</h3>
+      </div>
+      <div class="panel-body">
+        <div id="tokenErr" class="alert alert-error" style="display:none"></div>
+        <div id="tokenSuccess" class="alert alert-success" style="display:none"></div>
+        <div class="form-grid form-grid-2" style="align-items:end">
+          <div class="field"><label>Token-Name</label><input id="tName" placeholder="z.B. CI/CD Pipeline"></div>
+          <div class="field">
+            <label>Berechtigung</label>
+            <select id="tScope">
+              <option value="restricted">Eingeschränkt (spezifische Dienste)</option>
+              <option value="all">Alle Dienste</option>
+            </select>
+          </div>
+        </div>
+        <div class="mt-16">
+          <button class="btn btn-primary" onclick="createToken()">Token erstellen</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><h3>API-Tokens</h3></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th><th>Prefix</th><th>Berechtigungen</th><th>Erstellt</th><th>Zuletzt genutzt</th><th>Aktionen</th>
+            </tr>
+          </thead>
+          <tbody id="tokenTable"><tr><td colspan="6" class="text-muted" style="padding:20px">Lade…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== LOGS ===== -->
+  <div id="tab-logs" class="tab-content">
+    <div class="panel">
+      <div class="panel-header">
+        <h3>API-Aufruf-Log</h3>
+        <button class="btn btn-secondary btn-sm" onclick="loadLogs()">Aktualisieren</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Zeitstempel</th><th>Token</th><th>Methode</th><th>Endpoint</th><th>IP</th><th>Status</th></tr>
+          </thead>
+          <tbody id="logsTable"><tr><td colspan="6" class="text-muted" style="padding:20px">Lade…</td></tr></tbody>
+        </table>
+      </div>
+      <div id="loadMoreLogs" style="padding:14px 18px;border-top:1px solid var(--border);display:none">
+        <button class="btn btn-secondary btn-sm" onclick="loadMoreLogs()">Mehr laden</button>
+        <span id="logCount" class="text-muted" style="margin-left:10px;font-size:13px"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== EINSTELLUNGEN ===== -->
+  <div id="tab-settings" class="tab-content">
+    <div class="panel" style="max-width:480px">
+      <div class="panel-header"><h3>Passwort ändern</h3></div>
+      <div class="panel-body">
+        <div id="pwErr" class="alert alert-error" style="display:none"></div>
+        <div id="pwOk" class="alert alert-success" style="display:none">Passwort erfolgreich geändert.</div>
+        <div class="form-grid">
+          <div class="field"><label>Aktuelles Passwort</label><input type="password" id="pwCurrent" autocomplete="current-password"></div>
+          <div class="field"><label>Neues Passwort (min. 10 Zeichen)</label><input type="password" id="pwNew" autocomplete="new-password"></div>
+          <div class="field"><label>Neues Passwort bestätigen</label><input type="password" id="pwConfirm" autocomplete="new-password"></div>
+          <button class="btn btn-primary" onclick="changePassword()">Passwort speichern</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel mt-24" style="max-width:480px">
+      <div class="panel-header"><h3>API-Nutzung</h3></div>
+      <div class="panel-body">
+        <p class="text-muted" style="margin-bottom:12px">Authentifizierung über Bearer-Token im Header:</p>
+        <code style="display:block;padding:10px">Authorization: Bearer &lt;dein-token&gt;</code>
+        <p class="text-muted mt-16" style="margin-bottom:8px">Endpunkte:</p>
+        <table style="font-size:13px">
+          <tr><td style="padding:6px 12px 6px 0"><code>GET /api/all</code></td><td class="text-muted">Alle zugänglichen Dienste mit Status</td></tr>
+          <tr><td style="padding:6px 12px 6px 0"><code>GET /api/status/:id</code></td><td class="text-muted">Status eines Dienstes</td></tr>
+          <tr><td style="padding:6px 12px 6px 0"><code>GET /api/history/:id</code></td><td class="text-muted">Check-Verlauf (?limit=100)</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODALS ===== -->
+
+<!-- Edit Service Modal -->
+<div id="editModal" class="modal-backdrop" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Dienst bearbeiten</h3>
+      <button class="modal-close" onclick="closeModal('editModal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="editErr" class="alert alert-error" style="display:none"></div>
+      <input type="hidden" id="editId">
+      <div class="form-grid">
+        <div class="field"><label>Name</label><input id="editName"></div>
+        <div class="field"><label>URL</label><input id="editUrl" type="url"></div>
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>Interval (Sek.)</label><input id="editInterval" type="number"></div>
+          <div class="field"><label>Timeout (Sek.)</label><input id="editTimeout" type="number"></div>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="editEnabled">
+            <option value="true">Aktiviert</option>
+            <option value="false">Deaktiviert</option>
+          </select>
+        </div>
+        <label class="perm-item" style="display:inline-flex;width:auto;gap:10px;cursor:pointer">
+          <input type="checkbox" id="editDualStack">
+          <div><div class="perm-name">Dual-Stack (IPv4 + IPv6 parallel)</div></div>
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('editModal')">Abbrechen</button>
+      <button class="btn btn-primary" onclick="saveEdit()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- History Modal -->
+<div id="histModal" class="modal-backdrop" style="display:none">
+  <div class="modal" style="max-width:700px">
+    <div class="modal-header">
+      <h3 id="histTitle">Prüfverlauf</h3>
+      <button class="modal-close" onclick="closeModal('histModal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th></th><th>Zeitstempel</th><th>Status</th><th>HTTP</th><th>Antwortzeit</th><th>Fehler</th></tr></thead>
+          <tbody id="histTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Permissions Modal -->
+<div id="permModal" class="modal-backdrop" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Berechtigungen: <span id="permTokenName"></span></h3>
+      <button class="modal-close" onclick="closeModal('permModal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="permErr" class="alert alert-error" style="display:none"></div>
+      <input type="hidden" id="permTokenId">
+
+      <div class="field" style="margin-bottom:16px">
+        <label>Zugriffsumfang</label>
+        <div class="scope-options">
+          <label class="scope-option" id="scopeAllLabel">
+            <input type="radio" name="scope" value="all" id="scopeAll"> Alle Dienste
+          </label>
+          <label class="scope-option" id="scopeRestLabel">
+            <input type="radio" name="scope" value="restricted" id="scopeRestricted" checked> Eingeschränkt
+          </label>
+        </div>
+      </div>
+
+      <div id="permServiceList">
+        <div class="field"><label>Dienste auswählen</label></div>
+        <div class="perm-list" id="permList"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('permModal')">Abbrechen</button>
+      <button class="btn btn-primary" onclick="savePermissions()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== State =====
+let services = [];
+let tokens = [];
+let logsOffset = 0;
+let logsTotal = 0;
+const LOGS_PAGE = 100;
+
+// ===== Auth =====
+async function checkAuth() {
+  const r = await fetch('/admin/session');
+  const d = await r.json();
+  if (!d.authenticated) { window.location.href = '/login.html'; return false; }
+  return true;
+}
+
+async function logout() {
+  await fetch('/admin/logout', { method: 'POST' });
+  window.location.href = '/login.html';
+}
+
+// ===== Tabs =====
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+  if (name === 'logs') loadLogs();
+  if (name === 'tokens') loadTokens();
+}
+
+// ===== Services =====
+async function loadServices() {
+  const res = await fetch('/admin/services');
+  if (res.status === 401) { window.location.href = '/login.html'; return; }
+  services = await res.json();
+  renderServices();
+}
+
+function renderServices() {
+  const tbody = document.getElementById('serviceTable');
+  if (!services.length) {
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><p>Noch keine Dienste. Füge den ersten Dienst oben hinzu.</p></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = services.map(s => {
+    let statusCell, rtCell, ageCell;
+    if (s.dual_stack) {
+      const r4 = s.last_check_v4, r6 = s.last_check_v6;
+      const b = (r, label) => r
+        ? `<span class="badge badge-${r.is_up ? 'up' : 'down'}" title="${esc(r.resolved_ip || '?')}">${label} ${esc(r.resolved_ip || '?')}</span>`
+        : `<span class="badge badge-unknown">${label} —</span>`;
+      statusCell = b(r4, 'v4') + ' ' + b(r6, 'v6');
+      rtCell = [r4, r6].filter(Boolean).map(r => r.response_time_ms + 'ms').join(' / ') || '—';
+      ageCell = timeAgo((r4 || r6)?.checked_at);
+    } else {
+      const status = s.status || 'unknown';
+      const ip = s.last_check?.resolved_ip ? ` <span class="text-mono" style="font-size:11px;color:var(--muted)">${esc(s.last_check.resolved_ip)}</span>` : '';
+      statusCell = `<span class="badge badge-${status}">${{up:'Online',down:'Offline',unknown:'Unbekannt'}[status] || status}</span>${ip}`;
+      rtCell = s.last_check?.response_time_ms != null ? s.last_check.response_time_ms + ' ms' : '—';
+      ageCell = s.last_check ? timeAgo(s.last_check.checked_at) : 'nie';
+    }
+    return `<tr>
+      <td><strong>${esc(s.name)}</strong>${!s.enabled ? ' <span class="badge badge-unknown" style="font-size:10px">Off</span>' : ''}${s.dual_stack ? ' <span class="badge badge-unknown" style="font-size:10px">DS</span>' : ''}</td>
+      <td><a href="${esc(s.url)}" target="_blank" class="text-mono">${esc(s.url)}</a></td>
+      <td>${statusCell}</td>
+      <td class="text-muted">${ageCell}</td>
+      <td>${rtCell}</td>
+      <td class="text-muted">${s.check_interval}s</td>
+      <td><div class="actions">
+        <button class="btn btn-secondary btn-sm" onclick="openEdit(${s.id})">Bearbeiten</button>
+        <button class="btn btn-secondary btn-sm" onclick="openHistory(${s.id}, '${esc(s.name)}')">Verlauf</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteService(${s.id}, '${esc(s.name)}')">Löschen</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function toggleAddForm() {
+  const f = document.getElementById('addServiceForm');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+async function addService() {
+  const err = document.getElementById('addErr');
+  err.style.display = 'none';
+  const body = {
+    name: document.getElementById('sName').value,
+    url: document.getElementById('sUrl').value,
+    check_interval: document.getElementById('sInterval').value,
+    timeout: document.getElementById('sTimeout').value,
+    dual_stack: document.getElementById('sDualStack').checked,
+  };
+  const res = await fetch('/admin/services', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) { err.textContent = data.error; err.style.display = 'block'; return; }
+  document.getElementById('sName').value = '';
+  document.getElementById('sUrl').value = '';
+  document.getElementById('addServiceForm').style.display = 'none';
+  await loadServices();
+  await loadTokens(); // Permissions list needs update
+}
+
+async function importCurl() {
+  if (!confirm('curl.json vom Server importieren? Bereits vorhandene Dienste bleiben erhalten.')) return;
+  const err = document.getElementById('addErr');
+  err.style.display = 'none';
+  const res = await fetch('/admin/services/import-local', { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) { err.textContent = data.error; err.style.display = 'block'; return; }
+  const msg = `${data.created} Dienst(e) importiert` +
+    (data.errors?.length ? `, ${data.errors.length} Fehler` : '');
+  alert(msg);
+  await loadServices();
+  await loadTokens();
+}
+
+function openEdit(id) {
+  const s = services.find(x => x.id === id);
+  if (!s) return;
+  document.getElementById('editId').value = s.id;
+  document.getElementById('editName').value = s.name;
+  document.getElementById('editUrl').value = s.url;
+  document.getElementById('editInterval').value = s.check_interval;
+  document.getElementById('editTimeout').value = s.timeout;
+  document.getElementById('editEnabled').value = s.enabled ? 'true' : 'false';
+  document.getElementById('editDualStack').checked = !!s.dual_stack;
+  document.getElementById('editErr').style.display = 'none';
+  document.getElementById('editModal').style.display = 'flex';
+}
+
+async function saveEdit() {
+  const id = document.getElementById('editId').value;
+  const err = document.getElementById('editErr');
+  err.style.display = 'none';
+  const body = {
+    name: document.getElementById('editName').value,
+    url: document.getElementById('editUrl').value,
+    check_interval: document.getElementById('editInterval').value,
+    timeout: document.getElementById('editTimeout').value,
+    enabled: document.getElementById('editEnabled').value === 'true',
+    dual_stack: document.getElementById('editDualStack').checked,
+  };
+  const res = await fetch('/admin/services/' + id, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) { err.textContent = data.error; err.style.display = 'block'; return; }
+  closeModal('editModal');
+  await loadServices();
+}
+
+async function deleteService(id, name) {
+  if (!confirm(`Dienst "${name}" wirklich löschen?`)) return;
+  await fetch('/admin/services/' + id, { method: 'DELETE' });
+  await loadServices();
+  await loadTokens();
+}
+
+async function openHistory(id, name) {
+  document.getElementById('histTitle').textContent = 'Verlauf: ' + name;
+  document.getElementById('histTable').innerHTML = '<tr><td colspan="6" class="text-muted">Lade…</td></tr>';
+  document.getElementById('histModal').style.display = 'flex';
+  const res = await fetch('/admin/services/' + id + '/history?limit=100');
+  const data = await res.json();
+  document.getElementById('histTable').innerHTML = data.length
+    ? data.map(r => `<tr>
+        <td><span class="history-dot ${r.is_up ? 'up' : 'down'}"></span></td>
+        <td class="text-muted">${fmtDate(r.checked_at)}</td>
+        <td><span class="badge badge-${r.is_up ? 'up' : 'down'}">${r.is_up ? 'OK' : 'Fehler'}</span></td>
+        <td>${r.status_code || '—'}</td>
+        <td>${r.response_time_ms != null ? r.response_time_ms + ' ms' : '—'}</td>
+        <td class="text-muted">${r.error_message || ''}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="6" class="text-muted">Keine Daten</td></tr>';
+}
+
+// ===== Tokens =====
+async function loadTokens() {
+  const res = await fetch('/admin/tokens');
+  if (!res.ok) return;
+  tokens = await res.json();
+  renderTokens();
+}
+
+function renderTokens() {
+  const tbody = document.getElementById('tokenTable');
+  if (!tokens.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><p>Noch keine Tokens erstellt.</p></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = tokens.map(t => {
+    const scopeLabel = t.scope === 'all'
+      ? '<span class="badge badge-up">Alle Dienste</span>'
+      : `<span class="badge badge-unknown">${t.permissions.length} Dienste</span>`;
+    return `<tr>
+      <td><strong>${esc(t.name)}</strong></td>
+      <td><code>${esc(t.token_prefix)}…</code></td>
+      <td>${scopeLabel}</td>
+      <td class="text-muted">${fmtDate(t.created_at)}</td>
+      <td class="text-muted">${t.last_used ? timeAgo(t.last_used) : 'nie'}</td>
+      <td><div class="actions">
+        <button class="btn btn-secondary btn-sm" onclick="openPermissions(${t.id})">Berechtigungen</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteToken(${t.id}, '${esc(t.name)}')">Löschen</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+async function createToken() {
+  const err = document.getElementById('tokenErr');
+  const ok = document.getElementById('tokenSuccess');
+  err.style.display = 'none';
+  ok.style.display = 'none';
+  const body = {
+    name: document.getElementById('tName').value,
+    scope: document.getElementById('tScope').value,
+  };
+  const res = await fetch('/admin/tokens', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) { err.textContent = data.error; err.style.display = 'block'; return; }
+
+  ok.innerHTML = `Token erstellt. Kopiere ihn jetzt — er wird nur einmal angezeigt:<div class="token-reveal">${esc(data.token)}</div>`;
+  ok.style.display = 'block';
+  document.getElementById('tName').value = '';
+  await loadTokens();
+}
+
+async function deleteToken(id, name) {
+  if (!confirm(`Token "${name}" wirklich löschen?`)) return;
+  await fetch('/admin/tokens/' + id, { method: 'DELETE' });
+  await loadTokens();
+}
+
+function openPermissions(tokenId) {
+  const token = tokens.find(t => t.id === tokenId);
+  if (!token) return;
+  document.getElementById('permTokenId').value = tokenId;
+  document.getElementById('permTokenName').textContent = token.name;
+  document.getElementById('permErr').style.display = 'none';
+
+  const scopeAll = document.getElementById('scopeAll');
+  const scopeRestricted = document.getElementById('scopeRestricted');
+  scopeAll.checked = token.scope === 'all';
+  scopeRestricted.checked = token.scope !== 'all';
+  updateScopeUI();
+
+  const list = document.getElementById('permList');
+  list.innerHTML = services.map(s => {
+    const checked = token.permissions.includes(s.id) ? 'checked' : '';
+    return `<label class="perm-item">
+      <input type="checkbox" value="${s.id}" ${checked}>
+      <div><div class="perm-name">${esc(s.name)}</div><div class="perm-url">${esc(s.url)}</div></div>
+    </label>`;
+  }).join('') || '<p class="text-muted">Keine Dienste vorhanden</p>';
+
+  document.querySelectorAll('input[name="scope"]').forEach(r => {
+    r.addEventListener('change', updateScopeUI);
+  });
+
+  document.getElementById('permModal').style.display = 'flex';
+}
+
+function updateScopeUI() {
+  const isAll = document.getElementById('scopeAll').checked;
+  document.getElementById('permServiceList').style.opacity = isAll ? '0.4' : '1';
+  document.getElementById('permServiceList').style.pointerEvents = isAll ? 'none' : 'auto';
+}
+
+async function savePermissions() {
+  const id = parseInt(document.getElementById('permTokenId').value);
+  const scope = document.getElementById('scopeAll').checked ? 'all' : 'restricted';
+  const serviceIds = [...document.querySelectorAll('#permList input[type=checkbox]:checked')]
+    .map(el => parseInt(el.value));
+  const err = document.getElementById('permErr');
+  err.style.display = 'none';
+
+  const res = await fetch('/admin/tokens/' + id + '/permissions', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope, service_ids: serviceIds }),
+  });
+  const data = await res.json();
+  if (!res.ok) { err.textContent = data.error; err.style.display = 'block'; return; }
+  closeModal('permModal');
+  await loadTokens();
+}
+
+// ===== Logs =====
+async function loadLogs() {
+  logsOffset = 0;
+  const res = await fetch(`/admin/logs?limit=${LOGS_PAGE}&offset=0`);
+  const data = await res.json();
+  logsTotal = data.total;
+  renderLogs(data.logs, false);
+  document.getElementById('logCount').textContent = `${Math.min(LOGS_PAGE, data.total)} von ${data.total}`;
+  document.getElementById('loadMoreLogs').style.display = data.total > LOGS_PAGE ? 'flex' : 'none';
+}
+
+async function loadMoreLogs() {
+  logsOffset += LOGS_PAGE;
+  const res = await fetch(`/admin/logs?limit=${LOGS_PAGE}&offset=${logsOffset}`);
+  const data = await res.json();
+  renderLogs(data.logs, true);
+  document.getElementById('logCount').textContent = `${Math.min(logsOffset + LOGS_PAGE, logsTotal)} von ${logsTotal}`;
+  if (logsOffset + LOGS_PAGE >= logsTotal) document.getElementById('loadMoreLogs').style.display = 'none';
+}
+
+function renderLogs(logs, append) {
+  const tbody = document.getElementById('logsTable');
+  const rows = logs.length
+    ? logs.map(l => {
+        const sc = l.status_code;
+        const color = sc >= 200 && sc < 300 ? 'var(--up)' : sc >= 400 ? 'var(--down)' : 'var(--warn)';
+        return `<tr>
+          <td class="text-muted text-mono">${fmtDate(l.timestamp)}</td>
+          <td><code>${esc(l.token_prefix || '—')}…</code></td>
+          <td><code>${esc(l.method)}</code></td>
+          <td class="text-mono">${esc(l.endpoint)}</td>
+          <td class="text-muted">${esc(l.ip || '—')}</td>
+          <td style="color:${color};font-weight:600">${sc || '—'}</td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="6" class="text-muted" style="padding:20px">Keine Logs</td></tr>';
+
+  if (append) {
+    tbody.insertAdjacentHTML('beforeend', rows);
+  } else {
+    tbody.innerHTML = rows;
+  }
+}
+
+// ===== Password =====
+async function changePassword() {
+  const err = document.getElementById('pwErr');
+  const ok = document.getElementById('pwOk');
+  err.style.display = 'none';
+  ok.style.display = 'none';
+
+  const cur = document.getElementById('pwCurrent').value;
+  const nw = document.getElementById('pwNew').value;
+  const cf = document.getElementById('pwConfirm').value;
+
+  if (nw !== cf) { err.textContent = 'Passwörter stimmen nicht überein'; err.style.display = 'block'; return; }
+  if (nw.length < 10) { err.textContent = 'Neues Passwort muss mindestens 10 Zeichen haben'; err.style.display = 'block'; return; }
+
+  const res = await fetch('/admin/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: cur, new_password: nw }),
+  });
+  const data = await res.json();
+  if (!res.ok) { err.textContent = data.error; err.style.display = 'block'; return; }
+  ok.style.display = 'block';
+  document.getElementById('pwCurrent').value = '';
+  document.getElementById('pwNew').value = '';
+  document.getElementById('pwConfirm').value = '';
+}
+
+// ===== Modals =====
+function closeModal(id) {
+  document.getElementById(id).style.display = 'none';
+}
+
+document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
+  backdrop.addEventListener('click', e => {
+    if (e.target === backdrop) closeModal(backdrop.id);
+  });
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-backdrop').forEach(el => {
+      if (el.style.display !== 'none') closeModal(el.id);
+    });
+  }
+});
+
+// ===== Utils =====
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function timeAgo(iso) {
+  if (!iso) return 'nie';
+  const sec = Math.floor((Date.now() - new Date(iso + (iso.endsWith('Z') ? '' : 'Z'))) / 1000);
+  if (sec < 5) return 'gerade eben';
+  if (sec < 60) return `vor ${sec}s`;
+  if (sec < 3600) return `vor ${Math.floor(sec/60)}m`;
+  return `vor ${Math.floor(sec/3600)}h`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).toLocaleString('de-DE', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
+
+// ===== Init =====
+(async () => {
+  if (!await checkAuth()) return;
+  await Promise.all([loadServices(), loadTokens()]);
+})();
+</script>
+</body>
+</html>

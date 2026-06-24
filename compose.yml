@@ -1,0 +1,16 @@
+services:
+  health-checker:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./Container_Data:/app/Container_Data
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # - ADMIN_PASSWORD=dein_sicheres_passwort   # Beim ersten Start setzen, danach in der UI ändern
+      - SERVICES_JSON=/app/Container_Data/curl.json
+      # TRUST_PROXY=1   # Setzen wenn hinter einem Reverse Proxy (nginx, Traefik)
+      # SECURE_COOKIES=true  # Nur bei HTTPS
+    restart: unless-stopped

@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Runtime data — contains password hash, token hashes, API logs
+data/
+Container_Data/curl.json
+
+# Environment secrets
+.env
+
+# SQLite WAL files (if outside data/)
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+npm-debug.log*
+*.log

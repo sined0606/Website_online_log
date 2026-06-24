@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Health Checker</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="header">
+  <div class="header-title">Health <span>Checker</span></div>
+  <div class="header-actions">
+    <span class="text-muted" style="font-size:12px" id="lastRefresh"></span>
+    <span class="refresh-dot" title="Auto-refresh aktiv"></span>
+    <a href="/admin.html" class="btn btn-secondary btn-sm">Admin</a>
+    <button onclick="logout()" class="btn btn-secondary btn-sm">Abmelden</button>
+  </div>
+</div>
+
+<div class="container">
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-card"><div class="label">Gesamt</div><div class="value" id="statTotal">—</div></div>
+    <div class="stat-card up"><div class="label">Online</div><div class="value" id="statUp">—</div></div>
+    <div class="stat-card down"><div class="label">Offline</div><div class="value" id="statDown">—</div></div>
+    <div class="stat-card unknown"><div class="label">Unbekannt</div><div class="value" id="statUnknown">—</div></div>
+  </div>
+
+  <div id="alert" class="alert alert-error" style="display:none"></div>
+  <div class="service-grid" id="grid">
+    <div class="empty-state"><p>Lade Dienste…</p></div>
+  </div>
+</div>
+
+<script>
+let refreshTimer;
+
+async function checkAuth() {
+  const r = await fetch('/admin/session');
+  const d = await r.json();
+  if (!d.authenticated) { window.location.href = '/login.html'; return false; }
+  return true;
+}
+
+async function load() {
+  try {
+    const res = await fetch('/admin/services');
+    if (res.status === 401) { window.location.href = '/login.html'; return; }
+    const services = await res.json();
+
+    const up = services.filter(s => s.status === 'up').length;
+    const down = services.filter(s => s.status === 'down' || s.status === 'partial').length;
+    const unknown = services.filter(s => s.status === 'unknown').length;
+
+    document.getElementById('statTotal').textContent = services.length;
+    document.getElementById('statUp').textContent = up;
+    document.getElementById('statDown').textContent = down;
+    document.getElementById('statUnknown').textContent = unknown;
+    document.getElementById('lastRefresh').textContent =
+      'Aktualisiert: ' + new Date().toLocaleTimeString('de-DE');
+
+    const grid = document.getElementById('grid');
+    if (!services.length) {
+      grid.innerHTML = '<div class="empty-state"><p>Keine Dienste konfiguriert. Gehe zu <a href="/admin.html">Admin</a>, um Dienste hinzuzufügen.</p></div>';
+      return;
+    }
+
+    grid.innerHTML = services.map(s => {
+      if (s.dual_stack) {
+        const r4 = s.last_check_v4, r6 = s.last_check_v6;
+        const cardStatus = s.status;
+        const borderColor = { up: 'var(--up)', partial: 'var(--warn)', down: 'var(--down)', unknown: 'var(--unknown)' }[cardStatus] || 'var(--unknown)';
+        const badgeStyle = { up: 'badge-up', partial: '', down: 'badge-down', unknown: 'badge-unknown' }[cardStatus];
+        const statusLabel = { up: 'Alle Online', partial: 'Teilweise Online', down: 'Offline', unknown: 'Unbekannt' }[cardStatus];
+        const age = timeAgo((r4 || r6)?.checked_at);
+        const disabledBadge = !s.enabled ? '<span class="badge badge-unknown" style="margin-left:6px">Deaktiviert</span>' : '';
+
+        const ipRow = (r, proto) => {
+          if (!r) return `
+            <div class="ds-row">
+              <span class="badge badge-unknown" style="font-size:11px;min-width:36px;justify-content:center">${proto}</span>
+              <span class="text-muted">—</span>
+            </div>`;
+          const badge = r.is_up ? 'badge-up' : 'badge-down';
+          const label = r.is_up ? 'Online' : 'Offline';
+          const detail = r.is_up
+            ? `<span class="text-mono" style="font-size:12px">${esc(r.resolved_ip || '?')}</span><span class="text-muted" style="font-size:12px">${r.response_time_ms != null ? ' · ' + r.response_time_ms + 'ms' : ''}</span>`
+            : `<span style="color:var(--down);font-size:12px">${esc(r.error || r.resolved_ip || '?')}</span>`;
+          return `
+            <div class="ds-row">
+              <span class="badge ${badge}" style="font-size:11px;min-width:36px;justify-content:center">${proto}</span>
+              ${detail}
+            </div>`;
+        };
+
+        return `<div class="service-card" style="border-left:3px solid ${borderColor}">
+          <div class="service-card-header">
+            <div>
+              <div class="service-name">${esc(s.name)}${disabledBadge}</div>
+              <div class="service-url">${esc(s.url)}</div>
+            </div>
+            <span class="badge ${badgeStyle}" style="${cardStatus==='partial'?'background:#78350f33;color:var(--warn)':''}">${statusLabel}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
+            ${ipRow(r4, 'IPv4')}
+            ${ipRow(r6, 'IPv6')}
+          </div>
+          <div class="service-meta" style="margin-top:10px">
+            <span style="color:var(--muted)">⟳ <strong>${age}</strong></span>
+          </div>
+        </div>`;
+      }
+
+      const status = s.last_check ? (s.last_check.is_up ? 'up' : 'down') : 'unknown';
+      const label = { up: 'Online', down: 'Offline', unknown: 'Unbekannt' }[status];
+      const rt = s.last_check?.response_time_ms != null ? `${s.last_check.response_time_ms} ms` : '—';
+      const code = s.last_check?.status_code || (s.last_check?.error ? 'Fehler' : '—');
+      const ip = s.last_check?.resolved_ip ? `<span class="text-mono" style="color:var(--muted);font-size:11px">${esc(s.last_check.resolved_ip)}</span>` : '';
+      const age = s.last_check ? timeAgo(s.last_check.checked_at) : 'nie';
+      const disabledBadge = !s.enabled ? '<span class="badge badge-unknown" style="margin-left:6px">Deaktiviert</span>' : '';
+
+      return `<div class="service-card card-${status}">
+        <div class="service-card-header">
+          <div>
+            <div class="service-name">${esc(s.name)} ${disabledBadge}</div>
+            <div class="service-url">${esc(s.url)} ${ip}</div>
+          </div>
+          <span class="badge badge-${status}">${label}</span>
+        </div>
+        ${s.last_check?.error ? `<div style="color:var(--down);font-size:12px;margin-bottom:8px">${esc(s.last_check.error)}</div>` : ''}
+        <div class="service-meta">
+          <span title="HTTP Status">HTTP: <strong>${code}</strong></span>
+          <span title="Antwortzeit">⏱ <strong>${rt}</strong></span>
+          <span title="Letzter Check">⟳ <strong>${age}</strong></span>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function timeAgo(iso) {
+  if (!iso) return 'nie';
+  const sec = Math.floor((Date.now() - new Date(iso + (iso.endsWith('Z') ? '' : 'Z'))) / 1000);
+  if (sec < 5) return 'gerade eben';
+  if (sec < 60) return `vor ${sec}s`;
+  if (sec < 3600) return `vor ${Math.floor(sec/60)}m`;
+  return `vor ${Math.floor(sec/3600)}h`;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function logout() {
+  await fetch('/admin/logout', { method: 'POST' });
+  window.location.href = '/login.html';
+}
+
+(async () => {
+  if (!await checkAuth()) return;
+  await load();
+  refreshTimer = setInterval(load, 30000);
+})();
+</script>
+</body>
+</html>
